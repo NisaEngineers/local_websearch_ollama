@@ -1,25 +1,18 @@
 """
 fact_checker.py
 ------------------
-A lightweight, heuristic post-generation check: it flags named entities
-(people, places, organizations) in the model's answer that don't appear
-anywhere in the sources actually retrieved for this query.
-
-IMPORTANT FRAMING -- read before relying on this: a flag here means
-"not present in this run's sources," NOT "false" or "hallucinated."
-Real-world testing showed this clearly: different searches for the same
-fast-moving news story surfaced different articles, and a detail (e.g.
-a named mediator and a signing location) that was entirely true and
-independently verifiable got flagged simply because that day's search
-results happened not to include a source mentioning it. The model can
-also genuinely invent things -- this check cannot tell the two apart.
-Treat a flag as "double-check this," not "this is made up."
+A lightweight, heuristic post-generation check: small local models like
+phi3:mini will sometimes invent specific names, places, or organizations
+that are not actually present in the retrieved sources, even when
+instructed not to (see README "Known limitations"). This module can't
+verify *truth*, only *grounding* -- whether a claim's named entities
+literally appear somewhere in the source text the model was given.
 
 It is intentionally simple (regex-based capitalized-phrase extraction,
-no NLP dependency) so it stays "pure Python, no extra deps." Expect
-false positives (true things your search didn't surface) and false
-negatives (fabrications built from real entity names, e.g. a wrong
-date attached to a real person).
+no NLP dependency) so it stays "pure Python, no extra deps." It will
+have false positives/negatives, but it reliably catches the failure
+mode seen in testing: a model confidently citing a fabricated person,
+city, or organization that doesn't appear anywhere in its sources.
 """
 
 from __future__ import annotations
@@ -36,8 +29,6 @@ _COMMON_WORDS = {
     "source", "sources", "note", "according", "meanwhile", "overall",
     "in", "on", "at", "as", "but", "and", "or", "if", "what", "when",
     "where", "who", "why", "how", "answer", "question",
-    "based", "given", "while", "although", "furthermore", "moreover",
-    "therefore", "thus", "consequently", "still", "yet", "also",
     "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
     "sunday", "january", "february", "march", "april", "may", "june",
     "july", "august", "september", "october", "november", "december",
@@ -48,7 +39,7 @@ _COMMON_WORDS = {
 _CONNECTORS = {"of", "the", "and", "for"}
 
 _CAP_PHRASE_RE = re.compile(
-    r"\b[A-Z][a-zA-Z]*(?:\s+(?:[A-Z][a-zA-Z]*|of|the|and|for))*\b"
+    r"\b[A-Z][a-zA-Z.]*(?:\s+(?:[A-Z][a-zA-Z.]*|of|the|and|for))*\b"
 )
 
 
@@ -112,30 +103,19 @@ def check_grounding(answer: str, source_text: str) -> GroundingReport:
 
 
 def annotate_answer(answer: str, report: GroundingReport) -> str:
-    """Append a note to the answer if unverified entities were found, so
-    the user sees it inline rather than having to dig through logs.
-
-    Important framing: this does NOT mean the flagged detail is false.
-    It means it doesn't appear in the specific sources retrieved for
-    this query. A detail can be entirely true and still get flagged here
-    if your web search happened not to surface a source mentioning it
-    (this is common for fast-moving news where different searches pull
-    different articles). Treat this as "double-check this" rather than
-    "this is made up."
-    """
+    """Append a clear warning to the answer if unverified entities were
+    found, so the user sees it inline rather than having to dig through
+    logs."""
     if not report.has_unverified:
         return answer
 
     flagged = ", ".join(sorted(report.unverified_entities))
     warning = (
-        "\n\nℹ UNVERIFIED IN THIS BATCH OF SOURCES: the following "
-        f"names/places/terms were NOT found in the sources retrieved for "
-        f"this query: {flagged}\n"
-        "This does not mean they are false -- it may just mean this "
-        "search didn't surface a source mentioning them (common for "
-        "fast-moving news). It can also mean the model added a detail "
-        "it has no basis for. Either way, worth double-checking "
-        "independently before relying on it."
+        "\n\n⚠ GROUNDING WARNING: the following names/places/terms in "
+        f"the answer above were NOT found in the source text and may be "
+        f"hallucinated by the model: {flagged}\n"
+        "Treat these specific details with skepticism and verify "
+        "independently."
     )
     return answer + warning
 

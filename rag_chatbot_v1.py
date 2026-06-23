@@ -39,8 +39,8 @@ logger = logging.getLogger("rag_chatbot")
 def answer_question(
     question: str,
     model: str = DEFAULT_MODEL,
-    max_search_results: int = 12,
-    top_k_sources: int = 7,
+    max_search_results: int = 8,
+    top_k_sources: int = 5,
     char_budget: int = 6000,
     verbose: bool = False,
 ) -> str:
